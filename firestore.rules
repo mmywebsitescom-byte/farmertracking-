@@ -1,0 +1,145 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: vehicles
+    // Document ID: auto-generated
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //   - type: string (required)
+    //   - ownerUid: string (required)
+    //
+    // Collection: farmers
+    // Document ID: auto-generated
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //   - village: string (required)
+    //   - phone: string (optional)
+    //   - ownerUid: string (required)
+    //
+    // Collection: workTypes
+    // Document ID: auto-generated
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //   - ratePerHour: number (required)
+    //   - ownerUid: string (required)
+    //
+    // Collection: workLogs
+    // Document ID: auto-generated
+    // Fields:
+    //   - id: string (required)
+    //   - farmerId: string (required)
+    //   - vehicleId: string (required)
+    //   - workTypeId: string (required)
+    //   - durationHours: number (required)
+    //   - totalAmount: number (required)
+    //   - date: string (required, YYYY-MM-DD)
+    //   - timestamp: number (required)
+    //   - ownerUid: string (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.ownerUid;
+    }
+
+    function uidUnchanged() {
+      return !('ownerUid' in request.resource.data) ||
+        request.resource.data.ownerUid == request.auth.uid;
+    }
+
+    function uidNotModified() {
+      return !('ownerUid' in request.resource.data) ||
+        request.resource.data.ownerUid == resource.data.ownerUid;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function isValidVehicle(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.type is string && data.type.size() > 0 && data.type.size() < 50 &&
+             data.ownerUid == request.auth.uid;
+    }
+
+    function isValidFarmer(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.village is string && data.village.size() > 0 && data.village.size() < 100 &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() < 20)) &&
+             data.ownerUid == request.auth.uid;
+    }
+
+    function isValidWorkType(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.ratePerHour is number && data.ratePerHour >= 0 &&
+             data.ownerUid == request.auth.uid;
+    }
+
+    function isValidWorkLog(data) {
+      return data.farmerId is string &&
+             data.vehicleId is string &&
+             data.workTypeId is string &&
+             data.durationHours is number && data.durationHours > 0 &&
+             data.totalAmount is number && data.totalAmount >= 0 &&
+             data.status in ['pending', 'paid'] &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() < 500)) &&
+             data.date is string && data.date.matches("^\\d{4}-\\d{2}-\\d{2}$") &&
+             data.timestamp is number &&
+             data.ownerUid == request.auth.uid;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /vehicles/{vehicleId} {
+      allow read: if isDocOwner();
+      allow create: if isAuthenticated() && hasRequiredFields(['id', 'name', 'type', 'ownerUid']) && isValidVehicle(request.resource.data);
+      allow update: if isDocOwner() && uidNotModified() && isValidVehicle(request.resource.data);
+      allow delete: if isDocOwner();
+    }
+
+    match /farmers/{farmerId} {
+      allow read: if isDocOwner();
+      allow create: if isAuthenticated() && hasRequiredFields(['id', 'name', 'village', 'ownerUid']) && isValidFarmer(request.resource.data);
+      allow update: if isDocOwner() && uidNotModified() && isValidFarmer(request.resource.data);
+      allow delete: if isDocOwner();
+    }
+
+    match /workTypes/{workTypeId} {
+      allow read: if isDocOwner();
+      allow create: if isAuthenticated() && hasRequiredFields(['id', 'name', 'ratePerHour', 'ownerUid']) && isValidWorkType(request.resource.data);
+      allow update: if isDocOwner() && uidNotModified() && isValidWorkType(request.resource.data);
+      allow delete: if isDocOwner();
+    }
+
+    match /workLogs/{workLogId} {
+      allow read: if isDocOwner();
+      allow create: if isAuthenticated() && hasRequiredFields(['id', 'farmerId', 'vehicleId', 'workTypeId', 'durationHours', 'totalAmount', 'status', 'date', 'timestamp', 'ownerUid']) && isValidWorkLog(request.resource.data);
+      allow update: if isDocOwner() && uidNotModified() && isValidWorkLog(request.resource.data);
+      allow delete: if isDocOwner();
+    }
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+  }
+}

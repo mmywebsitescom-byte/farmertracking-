@@ -1,0 +1,5 @@
+{
+  "name": "Farming Income Tracker",
+  "description": "A mobile-friendly app for tractor and vehicle owners to track work, manage farmers, and calculate income automatically.",
+  "requestFramePermissions": []
+}

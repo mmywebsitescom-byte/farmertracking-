@@ -1,0 +1,78 @@
+{
+  "entities": {
+    "Vehicle": {
+      "title": "Vehicle",
+      "description": "A vehicle owned by the user (e.g., Tractor, Excavator).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "ownerUid": { "type": "string" }
+      },
+      "required": ["id", "name", "type", "ownerUid"]
+    },
+    "Farmer": {
+      "title": "Farmer",
+      "description": "A farmer who hires the vehicle.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "village": { "type": "string" },
+        "phone": { "type": "string" },
+        "ownerUid": { "type": "string" }
+      },
+      "required": ["id", "name", "village", "ownerUid"]
+    },
+    "WorkType": {
+      "title": "Work Type",
+      "description": "Types of work and their rates.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "ratePerHour": { "type": "number" },
+        "ownerUid": { "type": "string" }
+      },
+      "required": ["id", "name", "ratePerHour", "ownerUid"]
+    },
+    "WorkLog": {
+      "title": "Work Log",
+      "description": "A record of work done.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "farmerId": { "type": "string" },
+        "vehicleId": { "type": "string" },
+        "workTypeId": { "type": "string" },
+        "durationHours": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "paid"] },
+        "notes": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "timestamp": { "type": "number" },
+        "ownerUid": { "type": "string" }
+      },
+      "required": ["id", "farmerId", "vehicleId", "workTypeId", "durationHours", "totalAmount", "status", "date", "timestamp", "ownerUid"]
+    }
+  },
+  "firestore": {
+    "/vehicles/{vehicleId}": {
+      "schema": "Vehicle",
+      "description": "Collection of vehicles."
+    },
+    "/farmers/{farmerId}": {
+      "schema": "Farmer",
+      "description": "Collection of farmers."
+    },
+    "/workTypes/{workTypeId}": {
+      "schema": "WorkType",
+      "description": "Collection of work types and rates."
+    },
+    "/workLogs/{workLogId}": {
+      "schema": "WorkLog",
+      "description": "Collection of work logs."
+    }
+  }
+}
