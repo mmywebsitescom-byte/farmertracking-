@@ -595,7 +595,7 @@ function Dashboard({ stats, workLogs, farmers, vehicles, workTypes, onNavigate }
                     </div>
                     <div>
                       <p className="font-bold text-zinc-900 text-sm">{farmer?.name || 'Unknown'}</p>
-                      <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">{type?.name} • {log.durationHours}h</p>
+                      <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">{type?.name} • {log.quantity || log.durationHours} {log.unit === 'hour' || !log.unit ? 'hr' : log.unit}</p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -642,6 +642,7 @@ function WorkEntry({ farmers, vehicles, workTypes, onComplete, onNavigate, onErr
     workTypeId: '',
     hours: '0',
     minutes: '0',
+    quantity: '',
     date: format(new Date(), 'yyyy-MM-dd'),
     status: 'pending' as 'pending' | 'paid',
     place: '',
@@ -651,22 +652,40 @@ function WorkEntry({ farmers, vehicles, workTypes, onComplete, onNavigate, onErr
 
   const isSetupIncomplete = farmers.length === 0 || vehicles.length === 0 || workTypes.length === 0;
 
+  const selectedType = useMemo(() => workTypes.find(t => t.id === formData.workTypeId), [formData.workTypeId, workTypes]);
+  const currentUnit = selectedType?.unit || 'hour';
+
   const totalAmount = useMemo(() => {
-    const type = workTypes.find(t => t.id === formData.workTypeId);
-    const h = parseFloat(formData.hours) || 0;
-    const m = parseFloat(formData.minutes) || 0;
-    const totalHours = h + (m / 60);
-    return type ? type.ratePerHour * totalHours : 0;
-  }, [formData.workTypeId, formData.hours, formData.minutes, workTypes]);
+    if (!selectedType) return 0;
+    const rate = selectedType.rate || selectedType.ratePerHour || 0;
+    if (currentUnit === 'hour') {
+      const h = parseFloat(formData.hours) || 0;
+      const m = parseFloat(formData.minutes) || 0;
+      const totalHours = h + (m / 60);
+      return Math.round(rate * totalHours);
+    } else {
+      const qty = parseFloat(formData.quantity) || 0;
+      return Math.round(rate * qty);
+    }
+  }, [formData.hours, formData.minutes, formData.quantity, selectedType, currentUnit]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const h = parseFloat(formData.hours) || 0;
-    const m = parseFloat(formData.minutes) || 0;
-    const totalHours = h + (m / 60);
+    
+    let totalHours = 0;
+    let qty = 0;
+    
+    if (currentUnit === 'hour') {
+      const h = parseFloat(formData.hours) || 0;
+      const m = parseFloat(formData.minutes) || 0;
+      totalHours = h + (m / 60);
+      qty = totalHours;
+    } else {
+      qty = parseFloat(formData.quantity) || 0;
+    }
 
-    if (!formData.farmerId || !formData.vehicleId || !formData.workTypeId || totalHours <= 0) {
-      onError(new Error("Please fill in all required fields and ensure duration is greater than 0"), OperationType.WRITE, 'workLogs');
+    if (!formData.farmerId || !formData.vehicleId || !formData.workTypeId || qty <= 0) {
+      onError(new Error("Please fill in all required fields and ensure duration/quantity is greater than 0"), OperationType.WRITE, 'workLogs');
       return;
     }
 
@@ -674,11 +693,13 @@ function WorkEntry({ farmers, vehicles, workTypes, onComplete, onNavigate, onErr
     try {
       const docRef = doc(collection(db, 'workLogs'));
       const id = docRef.id;
-      const { hours, minutes, ...rest } = formData;
+      const { hours, minutes, quantity, ...rest } = formData;
       await setDoc(docRef, {
         ...rest,
         id,
-        durationHours: totalHours,
+        unit: currentUnit,
+        quantity: qty,
+        durationHours: currentUnit === 'hour' ? totalHours : null,
         totalAmount,
         timestamp: Date.now(),
         ownerUid: auth.currentUser?.uid
@@ -759,25 +780,37 @@ function WorkEntry({ farmers, vehicles, workTypes, onComplete, onNavigate, onErr
         />
         <Select 
           label="Work Type" 
-          options={workTypes.map(t => ({ value: t.id, label: `${t.name} (₹${t.ratePerHour}/hr)` }))}
+          options={workTypes.map(t => ({ value: t.id, label: `${t.name} (₹${t.rate || t.ratePerHour}/${t.unit || 'hr'})` }))}
           value={formData.workTypeId}
           onChange={e => setFormData(prev => ({ ...prev, workTypeId: e.target.value }))}
         />
-        <div className="grid grid-cols-3 gap-4">
-          <Select 
-            label="Hours" 
-            placeholder={null}
-            options={Array.from({ length: 25 }, (_, i) => ({ value: i.toString(), label: i.toString() }))}
-            value={formData.hours}
-            onChange={e => setFormData(prev => ({ ...prev, hours: e.target.value }))}
-          />
-          <Select 
-            label="Minutes" 
-            placeholder={null}
-            options={Array.from({ length: 12 }, (_, i) => ({ value: (i * 5).toString(), label: (i * 5).toString() }))}
-            value={formData.minutes}
-            onChange={e => setFormData(prev => ({ ...prev, minutes: e.target.value }))}
-          />
+        <div className={cn("grid gap-4", currentUnit === 'hour' ? "grid-cols-3" : "grid-cols-2")}>
+          {currentUnit === 'hour' ? (
+            <>
+              <Select 
+                label="Hours" 
+                placeholder={null}
+                options={Array.from({ length: 25 }, (_, i) => ({ value: i.toString(), label: i.toString() }))}
+                value={formData.hours}
+                onChange={e => setFormData(prev => ({ ...prev, hours: e.target.value }))}
+              />
+              <Select 
+                label="Minutes" 
+                placeholder={null}
+                options={Array.from({ length: 12 }, (_, i) => ({ value: (i * 5).toString(), label: (i * 5).toString() }))}
+                value={formData.minutes}
+                onChange={e => setFormData(prev => ({ ...prev, minutes: e.target.value }))}
+              />
+            </>
+          ) : (
+            <Input 
+              label={`Quantity (${currentUnit}s)`}
+              type="number"
+              step="any"
+              value={formData.quantity}
+              onChange={e => setFormData(prev => ({ ...prev, quantity: e.target.value }))}
+            />
+          )}
           <Input 
             label="Date" 
             type="date" 
@@ -913,7 +946,7 @@ function FarmerProfile({
                   </div>
                   <div className="flex flex-wrap gap-2 mt-3">
                     <Badge icon={Truck} label={vehicle?.name || 'Unknown'} />
-                    <Badge icon={Clock} label={`${log.durationHours} hrs`} />
+                    <Badge icon={Clock} label={`${log.quantity || log.durationHours} ${log.unit === 'hour' || !log.unit ? 'hrs' : log.unit + 's'}`} />
                     <Badge icon={Settings} label={type?.name || 'Unknown'} />
                   </div>
                 </Card>
@@ -1274,7 +1307,7 @@ function WorkHistory({ workLogs, farmers, vehicles, workTypes, onError, onShowSu
               
               <div className="flex flex-wrap gap-2 mb-4">
                 <Badge icon={Truck} label={vehicle?.name || 'Unknown'} />
-                <Badge icon={Clock} label={`${log.durationHours} hrs`} />
+                <Badge icon={Clock} label={`${log.quantity || log.durationHours} ${log.unit === 'hour' || !log.unit ? 'hrs' : log.unit + 's'}`} />
                 <Badge icon={Settings} label={type?.name || 'Unknown'} />
               </div>
 
@@ -1328,22 +1361,32 @@ function Badge({ icon: Icon, label }: { icon: any, label: string }) {
 
 function SettingsPage({ workTypes, onError, onShowSuccess }: { workTypes: WorkType[], onError: (err: any, op: OperationType, path: string) => void, onShowSuccess: (msg: string) => void }) {
   const [showAdd, setShowAdd] = useState(false);
-  const [formData, setFormData] = useState({ name: '', ratePerHour: '' });
+  const [formData, setFormData] = useState({ name: '', rate: '', unit: 'hour' });
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.ratePerHour) return;
+    if (!formData.name || !formData.rate) return;
+    
+    const numericRate = parseFloat(formData.rate);
+    const updateData = { 
+      name: formData.name, 
+      rate: numericRate, 
+      unit: formData.unit,
+      // Keep ratePerHour for backward compatibility if it's an hourly rate
+      ratePerHour: formData.unit === 'hour' ? numericRate : null 
+    };
+
     try {
       if (editingId) {
-        await updateDoc(doc(db, 'workTypes', editingId), { name: formData.name, ratePerHour: parseFloat(formData.ratePerHour) });
+        await updateDoc(doc(db, 'workTypes', editingId), updateData);
         onShowSuccess("Work rate updated!");
       } else {
         const docRef = doc(collection(db, 'workTypes'));
-        await setDoc(docRef, { id: docRef.id, name: formData.name, ratePerHour: parseFloat(formData.ratePerHour), ownerUid: auth.currentUser?.uid });
+        await setDoc(docRef, { id: docRef.id, ownerUid: auth.currentUser?.uid, ...updateData });
         onShowSuccess("Work rate added!");
       }
-      setFormData({ name: '', ratePerHour: '' });
+      setFormData({ name: '', rate: '', unit: 'hour' });
       setShowAdd(false);
       setEditingId(null);
     } catch (err) {
@@ -1352,7 +1395,11 @@ function SettingsPage({ workTypes, onError, onShowSuccess }: { workTypes: WorkTy
   };
 
   const handleEdit = (workType: WorkType) => {
-    setFormData({ name: workType.name, ratePerHour: workType.ratePerHour.toString() });
+    setFormData({ 
+      name: workType.name, 
+      rate: (workType.rate || workType.ratePerHour || '').toString(), 
+      unit: workType.unit || 'hour' 
+    });
     setEditingId(workType.id);
     setShowAdd(true);
   };
@@ -1372,7 +1419,7 @@ function SettingsPage({ workTypes, onError, onShowSuccess }: { workTypes: WorkTy
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-900">Work Rates</h2>
         <Button onClick={() => {
-          if (showAdd) { setShowAdd(false); setEditingId(null); setFormData({ name: '', ratePerHour: '' }); }
+          if (showAdd) { setShowAdd(false); setEditingId(null); setFormData({ name: '', rate: '', unit: 'hour' }); }
           else setShowAdd(true);
         }} variant={showAdd ? 'secondary' : 'primary'}>
           {showAdd ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
@@ -1384,7 +1431,23 @@ function SettingsPage({ workTypes, onError, onShowSuccess }: { workTypes: WorkTy
         <Card className="bg-white border-2 border-green-500/20">
           <form onSubmit={handleAdd} className="space-y-4">
             <Input label="Work Name" placeholder="e.g. Rainy Work" value={formData.name} onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))} />
-            <Input label="Rate (₹/hr)" type="number" value={formData.ratePerHour} onChange={e => setFormData(prev => ({ ...prev, ratePerHour: e.target.value }))} />
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Rate (₹)" type="number" step="0.01" value={formData.rate} onChange={e => setFormData(prev => ({ ...prev, rate: e.target.value }))} />
+              <Select 
+                label="Unit" 
+                options={[
+                  { value: 'hour', label: 'Hour' },
+                  { value: 'trip', label: 'Trip' },
+                  { value: 'acre', label: 'Acre' },
+                  { value: 'day', label: 'Day' },
+                  { value: 'packet', label: 'Packet' },
+                  { value: 'ton', label: 'Ton' }
+                ]}
+                value={formData.unit}
+                onChange={e => setFormData(prev => ({ ...prev, unit: e.target.value }))}
+                placeholder={null}
+              />
+            </div>
             <Button type="submit" className="w-full">{editingId ? 'Update Rate' : 'Save Rate'}</Button>
           </form>
         </Card>
@@ -1395,7 +1458,7 @@ function SettingsPage({ workTypes, onError, onShowSuccess }: { workTypes: WorkTy
           <Card key={type.id} className="flex items-center justify-between">
             <div>
               <p className="font-bold text-gray-900">{type.name}</p>
-              <p className="text-xs text-gray-500">₹{type.ratePerHour} per hour</p>
+              <p className="text-xs text-gray-500">₹{type.rate || type.ratePerHour} per {type.unit || 'hour'}</p>
             </div>
             <div className="flex items-center gap-1">
               <button onClick={() => handleEdit(type)} className="p-2 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50 rounded-lg transition-colors">
@@ -1410,7 +1473,7 @@ function SettingsPage({ workTypes, onError, onShowSuccess }: { workTypes: WorkTy
         {workTypes.length === 0 && !showAdd && (
           <div className="p-6 bg-blue-50 rounded-2xl border border-blue-100 flex gap-3">
             <AlertCircle className="w-5 h-5 text-blue-500 shrink-0" />
-            <p className="text-xs text-blue-700 font-medium">Add some work types (like "Rainy Work" or "Harvesting") with their hourly rates to start logging work.</p>
+            <p className="text-xs text-blue-700 font-medium">Add some work types (like "Rainy Work" or "Harvesting") with their rates to start logging work.</p>
           </div>
         )}
       </div>
